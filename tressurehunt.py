@@ -1,5 +1,5 @@
 import random #Used to introduce unpredictability and randomness into the game.
-import time #Used to control the timing of output and create dramatic pauses for effect.
+import time #
 
 # === Wild Treasure Hunt Maze Game ===
 # A text-based adventure game where players explore magical doors
