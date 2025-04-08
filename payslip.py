@@ -1,59 +1,76 @@
+import pandas as pd
+from fpdf import FPDF
+import os
+import smtplib
+from email.message import EmailMessage
+from dotenv import load_dotenv
 
-def generate_payslip(employee, output_folder="payslips"):
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
+# Load environment variables
+load_dotenv()
+EMAIL_ADDRESS = os.getenv("EMAIL_USER")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASS")
 
-    filename = f"{output_folder}/{employee['Name'].replace(' ', '_')}_Payslip_{employee['Month']}_{employee['Year']}.pdf"
-    c = canvas.Canvas(filename, pagesize=A4)
-    width, height = A4
+# Step 1: Read employee data from Excel
+try:
+    import openpyxl  # Ensure the engine is available
+    df = pd.read_excel("employees.xlsx", engine="openpyxl")
+    if df.isnull().any().any():
+        raise ValueError("Missing data detected in employees.xlsx")
+except Exception as e:
+    print(f"Error reading Excel file: {e}")
+    exit()
 
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, height - 50, f"Payslip for {employee['Month']} {employee['Year']}")
+# Step 2: Calculate Net Salary
+df['Net Salary'] = df['Basic Salary'] + df['Allowances'] - df['Deductions']
 
-    c.setFont("Helvetica", 12)
-    lines = [
-        f"Name: {employee['Name']}",
-        f"Email: {employee['Email']}",
-        f"Basic Pay: ${employee['Basic Pay']:.2f}",
-        f"Allowances: ${employee['Allowances']:.2f}",
-        f"Deductions: ${employee['Deductions']:.2f}",
-        f"Net Pay: ${employee['Basic Pay'] + employee['Allowances'] - employee['Deductions']:.2f}"
-    ]
+# Step 3: Create payslips folder
+os.makedirs("payslips", exist_ok=True)
 
-    y = height - 100
-    for line in lines:
-        c.drawString(50, y, line)
-        y -= 25
+# Step 4: Generate PDF payslips with professional layout
+for index, row in df.iterrows():
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", 'B', 16)
+    pdf.cell(200, 10, txt="Payslip", ln=True, align="C")
+    pdf.ln(10)
 
-    c.save()
-    return filename
+    pdf.set_font("Helvetica", size=12)
+    pdf.cell(100, 10, txt=f"Employee ID: {row['Employee ID']}", ln=True)
+    pdf.cell(100, 10, txt=f"Name: {row['Name']}", ln=True)
+    pdf.ln(10)
 
-def send_email(to_email, subject, body, attachment):
-    # You must set up Yagmail with your credentials before running this
-    yag = yagmail.SMTP("your_email@example.com")  # Replace with your email
-    yag.send(
-        to=to_email,
-        subject=subject,
-        contents=body,
-        attachments=attachment
-    )
-    print(f"Email sent to {to_email}")
+    pdf.set_font("Helvetica", 'B', 12)
+    pdf.cell(100, 10, txt="Salary Details:", ln=True)
+    pdf.set_font("Helvetica", size=12)
+    pdf.cell(100, 10, txt=f"Basic Salary: ${row['Basic Salary']:.2f}", ln=True)
+    pdf.cell(100, 10, txt=f"Allowances: ${row['Allowances']:.2f}", ln=True)
+    pdf.cell(100, 10, txt=f"Deductions: ${row['Deductions']:.2f}", ln=True)
+    pdf.cell(100, 10, txt=f"Net Salary: ${row['Net Salary']:.2f}", ln=True)
 
-def main():
-    # Load Excel file
-    df =pd.read_excel("employees.xlsx")
+    pdf.ln(20)
+    pdf.set_font("Helvetica", style="I", size=10)
+    pdf.cell(100, 10, txt="This is a system-generated payslip.", ln=True)
 
-    for _, row in df.iterrows():
-        payslip = generate_payslip(row)
-        email_body = f"""
-        Hi {row['Name']},
+    file_path = f"payslips/{row['Employee ID']}.pdf"
+    pdf.output(file_path)
 
-        Please find attached your payslip for {row['Month']} {row['Year']}.
+# Step 5: Email the payslips
+for index, row in df.iterrows():
+    try:
+        msg = EmailMessage()
+        msg['Subject'] = "Your Payslip for This Month"
+        msg['From'] = EMAIL_ADDRESS
+        msg['To'] = row['Email']
+        msg.set_content(f"Dear {row['Name']},\n\nPlease find your payslip attached.\n\nRegards,\nHR Team")
 
-        Best regards,
-        HR Department
-        """
-        send_email(row['Email'], "Your Monthly Payslip", email_body, payslip)
+        file_path = f"payslips/{row['Employee ID']}.pdf"
+        with open(file_path, 'rb') as f:
+            file_data = f.read()
+            msg.add_attachment(file_data, maintype='application', subtype='pdf', filename=os.path.basename(file_path))
 
-if __name__ == "__main__":
-    main()
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+            smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+            smtp.send_message(msg)
+        print(f"Payslip sent to {row['Email']}")
+    except Exception as e:
+        print(f"Error sending email to {row['Email']}: {e}")
